@@ -1,0 +1,18 @@
+[
+  {
+    "ParameterKey": "ACLBlockPublicParameter",
+    "ParameterValue": "True"
+  },
+  {
+    "ParameterKey": "ACLIgnorePublicParameter",
+    "ParameterValue": "True"
+  },
+  {
+    "ParameterKey": "BucketPolicyBlockPublicParameter",
+    "ParameterValue": "True"
+  },
+  {
+    "ParameterKey": "BucketPolicyRestrictPublicParameter",
+    "ParameterValue": "True"
+  }
+]

@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Deploys a Lambda backed CloudFormation custom resource for managing S3 account level block public access controls and applies desired settings.
+Parameters:
+  ACLBlockPublicParameter:
+    Type: String
+    Default: "True"
+    AllowedValues: ["True", "False"]
+    Description: "Block public access to buckets and objects granted through new access control lists (ACLs)"
+  ACLIgnorePublicParameter:
+    Type: String
+    Default: "True"
+    AllowedValues: ["True", "False"]
+    Description: "Block public access to buckets and objects granted through any/existing access control lists (ACLs)"
+  BucketPolicyBlockPublicParameter:
+    Type: String
+    Default: "True"
+    AllowedValues: ["True", "False"]
+    Description: "Block public access to buckets and objects granted through new public bucket or access point policies"
+  BucketPolicyRestrictPublicParameter:
+    Type: String
+    Default: "True"
+    AllowedValues: ["True", "False"]
+    Description: "Block public and cross-account access to buckets and objects through any/existing public bucket or access point policies"
+ 
+Resources:
+  BlockS3AccessEvent:
+    Type: Custom::S3BlockPublicAccess
+    Properties:
+      ServiceToken: !GetAtt 'S3BlockPublicAccessFunction.Arn'
+      BlockPublicAcls: !Ref ACLBlockPublicParameter
+      IgnorePublicAcls: !Ref ACLIgnorePublicParameter
+      BlockPublicBucketPolicy: !Ref BucketPolicyBlockPublicParameter
+      RestrictPublicBuckets: !Ref BucketPolicyRestrictPublicParameter
+
+  S3BlockPublicAccessFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: "index.lambda_handler"
+      Timeout: 30
+      Runtime: python3.7
+      Role: !GetAtt 'S3BlockPublicAccessLambdaRole.Arn'
+      Environment:
+        Variables:
+          ACCOUNT_ID: !Ref AWS::AccountId
+      Code:
+        ZipFile: !Sub | 
+          import os
+          import boto3
+          import cfnresponse
+          import logging
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+          client = boto3.client('s3control')
+
+          def lambda_handler(event, context):
+            logger.info('got event {}'.format(event))
+            responseData = {}
+
+            if event['RequestType'] == 'Create':
+              client.put_public_access_block(
+                  AccountId=os.environ['ACCOUNT_ID'],
+                  PublicAccessBlockConfiguration={
+                      'BlockPublicAcls': ${ACLBlockPublicParameter},
+                      'IgnorePublicAcls': ${ACLIgnorePublicParameter},
+                      'BlockPublicPolicy': ${BucketPolicyBlockPublicParameter},
+                      'RestrictPublicBuckets': ${BucketPolicyRestrictPublicParameter}
+                  }
+              )
+
+            elif event['RequestType'] == 'Update':
+              client.put_public_access_block(
+                  AccountId=os.environ['ACCOUNT_ID'],
+                  PublicAccessBlockConfiguration={
+                      'BlockPublicAcls': ${ACLBlockPublicParameter},
+                      'IgnorePublicAcls': ${ACLIgnorePublicParameter},
+                      'BlockPublicPolicy': ${BucketPolicyBlockPublicParameter},
+                      'RestrictPublicBuckets': ${BucketPolicyRestrictPublicParameter}
+                  }
+              )
+
+            else: # Delete
+              client.delete_public_access_block(
+                    AccountId=os.environ['ACCOUNT_ID']
+              )
+
+            logger.info('responseData {}'.format(responseData))
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData, "SetS3ControlCustomID")
+
+  S3BlockPublicAccessLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+          Condition: {}
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3AccountPublicAccessBlock
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                - s3:GetAccountPublicAccessBlock
+                - s3:PutAccountPublicAccessBlock
+                Effect: Allow
+                Resource: '*' 
